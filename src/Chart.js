@@ -1,4 +1,3 @@
-
 import React from "react";
 import PropTypes from "prop-types";
 
@@ -11,7 +10,7 @@ import {
 	AreaSeries,
 	CandlestickSeries,
 	LineSeries,
-	RSISeries,
+	RSISeries, AlternatingFillAreaSeries, StraightLine,
 } from "react-stockcharts/lib/series";
 import { XAxis, YAxis } from "react-stockcharts/lib/axes";
 import {
@@ -29,12 +28,40 @@ import {
 	RSITooltip,
 	SingleValueTooltip,
 } from "react-stockcharts/lib/tooltip";
-import { ema, rsi, sma, atr } from "react-stockcharts/lib/indicator";
+import { ema, rsi, sma, atr, forceIndex } from "react-stockcharts/lib/indicator";
 import { fitWidth } from "react-stockcharts/lib/helper";
 import { last } from "react-stockcharts/lib/utils";
 
+import { LabelAnnotation, Label, Annotate } from "react-stockcharts/lib/annotation";
+
+
+const macdAppearance = {
+	stroke: {
+		macd: "#FF0000",
+		signal: "#00F300",
+	},
+	fill: {
+		divergence: "#4682B4"
+	},
+};
+
+function getMaxUndefined(calculators) {
+	return calculators.map(each => each.undefinedLength()).reduce((a, b) => Math.max(a, b));
+}
+const LENGTH_TO_SHOW = 180;
+
 class CandleStickChartWithRSIIndicator extends React.Component {
 	render() {
+		const fi = forceIndex()
+			.merge((d, c) => {d.fi = c;})
+			.accessor(d => d.fi);
+
+		const fiEMA13 = ema()
+			.id(1)
+			.options({ windowSize: 13, sourcePath: "fi" })
+			.merge((d, c) => {d.fiEMA13 = c;})
+			.accessor(d => d.fiEMA13);
+
 		const ema26 = ema()
 			.id(0)
 			.options({ windowSize: 26 })
@@ -47,6 +74,15 @@ class CandleStickChartWithRSIIndicator extends React.Component {
 			.merge((d, c) => {d.ema12 = c;})
 			.accessor(d => d.ema12);
 
+		// const macdCalculator = macd()
+		// 	.options({
+		// 		fast: 12,
+		// 		slow: 26,
+		// 		signal: 9,
+		// 	})
+		// 	.merge((d, c) => {d.macd = c;})
+		// 	.accessor(d => d.macd);
+
 		const smaVolume50 = sma()
 			.id(3)
 			.options({ windowSize: 50, sourcePath: "volume" })
@@ -54,18 +90,20 @@ class CandleStickChartWithRSIIndicator extends React.Component {
 			.accessor(d => d.smaVolume50);
 
 		const rsiCalculator = rsi()
-			.options({ windowSize: 14 })
+			.options({ windowSize: 1 })
 			.merge((d, c) => {d.rsi = c;})
 			.accessor(d => d.rsi);
 
 		const atr14 = atr()
-			.options({ windowSize: 14 })
+			.options({ windowSize: 1 })
 			.merge((d, c) => {d.atr14 = c;})
 			.accessor(d => d.atr14);
 
 		const { type, data: initialData, width, ratio } = this.props;
 
-		const calculatedData = ema26(ema12(smaVolume50(rsiCalculator(atr14(initialData)))));
+		const calculatedData = fiEMA13(fi(ema26(ema12(smaVolume50(rsiCalculator(atr14(initialData)))))));
+		const calculatedFiData = fiEMA13(fi(initialData));
+
 		const xScaleProvider = discontinuousTimeScaleProvider
 			.inputDateAccessor(d => d.date);
 		const {
@@ -75,16 +113,23 @@ class CandleStickChartWithRSIIndicator extends React.Component {
 			displayXAccessor,
 		} = xScaleProvider(calculatedData);
 
-		const start = xAccessor(last(data));
-		const end = xAccessor(data[Math.max(0, data.length - 150)]);
+		//const start = xAccessor(last(data));
+		//const end = xAccessor(data[Math.max(0, data.length - 150)]);
+
+
+		const start = xAccessor(data[0]);
+		const end = xAccessor(last(data));
+
 		const xExtents = [start, end];
 
+		const margin = { left: 70, right: 70, top: 20, bottom: 30 }
+
 		return (
-			<ChartCanvas height={600}
+			<ChartCanvas height={900}
 				width={width}
 				ratio={ratio}
-				margin={{ left: 70, right: 70, top: 20, bottom: 30 }}
-				type={type}
+				margin={margin}
+				type={'svg'} // type 'svg'
 				seriesName="MSFT"
 				data={data}
 				xScale={xScale}
@@ -92,6 +137,8 @@ class CandleStickChartWithRSIIndicator extends React.Component {
 				displayXAccessor={displayXAccessor}
 				xExtents={xExtents}
 			>
+				<Label x={(width - margin.left - margin.right) / 2} y={30}
+					   fontSize="30" text="Share name" />
 
 				<Chart id={1} height={300}
 					yExtents={[d => [d.high, d.low], ema26.accessor(), ema12.accessor()]}
@@ -139,7 +186,7 @@ class CandleStickChartWithRSIIndicator extends React.Component {
 				</Chart>
 				<Chart id={2} height={150}
 					yExtents={[d => d.volume, smaVolume50.accessor()]}
-					origin={(w, h) => [0, h - 400]}
+					origin={(w, h) => [0, h - 675]}
 				>
 					<YAxis axisAt="left" orient="left" ticks={5} tickFormat={format(".2s")}/>
 
@@ -148,12 +195,13 @@ class CandleStickChartWithRSIIndicator extends React.Component {
 						orient="left"
 						displayFormat={format(".4s")} />
 
-					<BarSeries yAccessor={d => d.volume} fill={d => d.close > d.open ? "#6BA583" : "#FF0000"} />
+					<BarSeries yAccessor={d => d.volume} fill={d => d.close > d.open ? "#b3ffb3" : "#ffad99"} />
 					<AreaSeries yAccessor={smaVolume50.accessor()} stroke={smaVolume50.stroke()} fill={smaVolume50.fill()}/>
 				</Chart>
-				<Chart id={3}
+				<Chart
+					id={3}
 					yExtents={[0, 100]}
-					height={125} origin={(w, h) => [0, h - 250]}
+					height={125} origin={(w, h) => [0, h - 520]}
 				>
 					<XAxis axisAt="bottom" orient="bottom" showTicks={false} outerTickSize={0} />
 					<YAxis axisAt="right"
@@ -170,11 +218,11 @@ class CandleStickChartWithRSIIndicator extends React.Component {
 						yAccessor={d => d.rsi}
 						options={rsiCalculator.options()} />
 				</Chart>
-				<Chart id={8}
+				<Chart id={4}
 					yExtents={atr14.accessor()}
-					height={125} origin={(w, h) => [0, h - 125]} padding={{ top: 10, bottom: 10 }}
+					height={125} origin={(w, h) => [0, h - 380]} padding={{ top: 10, bottom: 10 }}
 				>
-					<XAxis axisAt="bottom" orient="bottom" />
+					<XAxis axisAt="bottom" orient="bottom"  />
 					<YAxis axisAt="right" orient="right" ticks={2}/>
 
 					<MouseCoordinateX
@@ -194,6 +242,59 @@ class CandleStickChartWithRSIIndicator extends React.Component {
 						/* valueStroke={atr14.stroke()} - optional prop */
 						/* labelStroke="#4682B4" - optional prop */
 						origin={[-40, 15]}/>
+				</Chart>
+				<Chart id={5} height={100}
+					   yExtents={fi.accessor()}
+					   origin={(w, h) => [0, h - 250]}
+					   padding={{ top: 10, right: 0, bottom: 10, left: 0 }}
+				>
+					<XAxis axisAt="bottom" orient="bottom" showTicks={false} outerTickSize={0} />
+					<YAxis axisAt="right" orient="right" ticks={4} tickFormat={format(".2s")}/>
+					<MouseCoordinateY
+						at="right"
+						orient="right"
+						displayFormat={format(".4s")} />
+
+					<AreaSeries baseAt={scale => scale(0)} yAccessor={fi.accessor()} />
+					<StraightLine yValue={0} />
+
+					<SingleValueTooltip
+						yAccessor={fi.accessor()}
+						yLabel="ForceIndex (1)"
+						yDisplayFormat={format(".4s")}
+						origin={[-40, 15]}
+					/>
+				</Chart>
+				<Chart id={6} height={150}
+					   yExtents={fiEMA13.accessor()}
+					   origin={(w, h) => [0, h - 120]}
+					   padding={{ top: 10, right: 0, bottom: 10, left: 0 }}
+				>
+					<XAxis axisAt="bottom" orient="bottom" />
+					<YAxis axisAt="right" orient="right" ticks={4} tickFormat={format(".2s")}/>
+
+					<MouseCoordinateX
+						at="bottom"
+						orient="bottom"
+						displayFormat={timeFormat("%Y-%m-%d")} />
+					<MouseCoordinateY
+						at="right"
+						orient="right"
+						displayFormat={format(".4s")} />
+
+					{/* <AreaSeries baseAt={scale => scale(0)} yAccessor={fiEMA13.accessor()} /> */}
+					<AlternatingFillAreaSeries
+						baseAt={0}
+						yAccessor={fiEMA13.accessor()}
+					/>
+					<StraightLine yValue={0} />
+
+					<SingleValueTooltip
+						yAccessor={fiEMA13.accessor()}
+						yLabel={`ForceIndex (${fiEMA13.options().windowSize})`}
+						yDisplayFormat={format(".4s")}
+						origin={[-40, 15]}
+					/>
 				</Chart>
 				<CrossHairCursor />
 			</ChartCanvas>

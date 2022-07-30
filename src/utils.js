@@ -1,7 +1,4 @@
-
-
-import { tsvParse, csvParse } from  "d3-dsv";
-import { timeParse } from "d3-time-format";
+import {timeParse} from "d3-time-format";
 
 function parseData(parse) {
 	return function(d) {
@@ -11,16 +8,24 @@ function parseData(parse) {
 		d.low = +d.low;
 		d.close = +d.close;
 		d.volume = +d.volume;
-
+        console.log(d)
 		return d;
 	};
 }
 
 const parseDate = timeParse("%Y-%m-%d");
-
+//var parseDate = d3.timeParse("%Y-%m-%dT%H:%M:%S%Z");
 export function getData() {
-	const promiseMSFT = fetch("https://cdn.rawgit.com/rrag/react-stockcharts/master/docs/data/MSFT.tsv")
+	return fetch("http://localhost:3002/shares/get_candles_json")
 		.then(response => response.text())
-		.then(data => tsvParse(data, parseData(parseDate)))
-	return promiseMSFT;
+		.then(data => JSON.parse(data).map(function (d) {
+			return {
+				date: parseDate(d.date),
+				open: +d.open,
+				high: +d.high,
+				low: +d.low,
+				close: +d.close,
+				volume: +d.volume
+			};
+		}));
 }
