@@ -4,7 +4,10 @@ import PropTypes from "prop-types";
 import { format } from "d3-format";
 import { timeFormat } from "d3-time-format";
 
-import { ChartCanvas, Chart } from "react-stockcharts";
+import algo from "react-stockcharts/lib/algorithm";
+
+import { ChartCanvas, Chart, algorithm } from "react-stockcharts";
+
 import {
 	BarSeries,
 	AreaSeries,
@@ -32,8 +35,7 @@ import { ema, rsi, sma, atr, forceIndex } from "react-stockcharts/lib/indicator"
 import { fitWidth } from "react-stockcharts/lib/helper";
 import { last } from "react-stockcharts/lib/utils";
 
-import { LabelAnnotation, Label, Annotate } from "react-stockcharts/lib/annotation";
-
+import {LabelAnnotation, Label, Annotate, SvgPathAnnotation, buyPath, sellPath} from "react-stockcharts/lib/annotation";
 
 const macdAppearance = {
 	stroke: {
@@ -45,11 +47,6 @@ const macdAppearance = {
 	},
 };
 
-function getMaxUndefined(calculators) {
-	return calculators.map(each => each.undefinedLength()).reduce((a, b) => Math.max(a, b));
-}
-const LENGTH_TO_SHOW = 180;
-
 class CandleStickChartWithRSIIndicator extends React.Component {
 	render() {
 		const fi = forceIndex()
@@ -58,7 +55,7 @@ class CandleStickChartWithRSIIndicator extends React.Component {
 
 		const fiEMA13 = ema()
 			.id(1)
-			.options({ windowSize: 13, sourcePath: "fi" })
+			.options({ windowSize: 20, sourcePath: "fi" })
 			.merge((d, c) => {d.fiEMA13 = c;})
 			.accessor(d => d.fiEMA13);
 
@@ -73,6 +70,20 @@ class CandleStickChartWithRSIIndicator extends React.Component {
 			.options({ windowSize: 12 })
 			.merge((d, c) => {d.ema12 = c;})
 			.accessor(d => d.ema12);
+
+		const ema20 = ema()
+			.options({windowSize: 13})
+			.merge((d, c) => {
+				d.ema20 = c
+			})
+			.accessor(d => d.ema20);
+
+		const ema50 = ema()
+			.options({windowSize: 50})
+			.merge((d, c) => {
+				d.ema50 = c
+			})
+			.accessor(d => d.ema50);
 
 		// const macdCalculator = macd()
 		// 	.options({
@@ -99,10 +110,47 @@ class CandleStickChartWithRSIIndicator extends React.Component {
 			.merge((d, c) => {d.atr14 = c;})
 			.accessor(d => d.atr14);
 
+		// let buySell = algo()
+		// 	.windowSize(50)
+		// 	.accumulator((atr14) => {
+		// 		if (atr14 >= 2 ) return "SHORT"; // && nowShortTerm < nowLongTerm
+		// 		if (atr14 < 2 )  return "LONG";
+		// 	})
+		// 	.merge((d, c) => {d.longShort = c})
+
+		const buySell = algo()
+			.windowSize(2)
+			.accumulator(([prev, now]) => {
+				const { ema20: prevShortTerm, ema50: prevLongTerm } = prev;
+				const { ema20: nowShortTerm, ema50: nowLongTerm } = now;
+				if (prevShortTerm < prevLongTerm && nowShortTerm > nowLongTerm) return "LONG";
+				if (prevShortTerm > prevLongTerm && nowShortTerm < nowLongTerm) return "SHORT";
+			})
+			.merge((d, c) => { d.longShort = c; });
+
+		const defaultAnnotationProps = {
+			onClick: console.log.bind(console),
+		};
+
+		const longAnnotationProps = {
+			...defaultAnnotationProps,
+			y: ({yScale, datum}) => yScale(datum.low),
+			fill: "#006517",
+			path: buyPath,
+			tooltip: "go long",
+		};
+
+		const shortAnnotationProps = {
+			...defaultAnnotationProps,
+			y: ({yScale, datum}) => yScale(datum.high),
+			fill: "#FF0000",
+			path: sellPath,
+			tooltip: "go short",
+		};
+
 		const { type, data: initialData, width, ratio } = this.props;
 
-		const calculatedData = fiEMA13(fi(ema26(ema12(smaVolume50(rsiCalculator(atr14(initialData)))))));
-		const calculatedFiData = fiEMA13(fi(initialData));
+		const calculatedData = buySell(ema20(ema50(fiEMA13(fi(ema26(ema12(smaVolume50(rsiCalculator(atr14(initialData))))))))));
 
 		const xScaleProvider = discontinuousTimeScaleProvider
 			.inputDateAccessor(d => d.date);
@@ -116,32 +164,35 @@ class CandleStickChartWithRSIIndicator extends React.Component {
 		//const start = xAccessor(last(data));
 		//const end = xAccessor(data[Math.max(0, data.length - 150)]);
 
+		const shareName = 'MSFT'
 
 		const start = xAccessor(data[0]);
 		const end = xAccessor(last(data));
 
 		const xExtents = [start, end];
-
+		const height = 900
 		const margin = { left: 70, right: 70, top: 20, bottom: 30 }
 
+		const [yAxisLabelX, yAxisLabelY] = [width - margin.left - 40, margin.top + (height - margin.top - margin.bottom) / 2];
+
 		return (
-			<ChartCanvas height={900}
+			<ChartCanvas height={height}
 				width={width}
 				ratio={ratio}
 				margin={margin}
 				type={'svg'} // type 'svg'
-				seriesName="MSFT"
+				seriesName={shareName}
 				data={data}
+			 	calculator={[ema20, ema50, buySell]}
 				xScale={xScale}
 				xAccessor={xAccessor}
 				displayXAccessor={displayXAccessor}
 				xExtents={xExtents}
 			>
-				<Label x={(width - margin.left - margin.right) / 2} y={30}
-					   fontSize="30" text="Share name" />
+				<Label x={(width - margin.left - margin.right) / 2} y={30} fontSize="30" text={shareName} />
 
 				<Chart id={1} height={300}
-					yExtents={[d => [d.high, d.low], ema26.accessor(), ema12.accessor()]}
+					yExtents={[d => [d.high, d.low], ema12.accessor(), ema26.accessor()]}
 					padding={{ top: 10, bottom: 20 }}
 				>
 					<XAxis axisAt="bottom" orient="bottom" showTicks={false} outerTickSize={0} />
@@ -153,6 +204,7 @@ class CandleStickChartWithRSIIndicator extends React.Component {
 						displayFormat={format(".2f")} />
 
 					<CandlestickSeries />
+
 					<LineSeries yAccessor={ema26.accessor()} stroke={ema26.stroke()}/>
 					<LineSeries yAccessor={ema12.accessor()} stroke={ema12.stroke()}/>
 
@@ -183,6 +235,10 @@ class CandleStickChartWithRSIIndicator extends React.Component {
 						]}
 					/>
 
+					<Annotate with={SvgPathAnnotation} when={d => d.longShort === "LONG"}
+							  usingProps={longAnnotationProps} />
+					<Annotate with={SvgPathAnnotation} when={d => d.longShort === "SHORT"}
+							  usingProps={shortAnnotationProps} />
 				</Chart>
 				<Chart id={2} height={150}
 					yExtents={[d => d.volume, smaVolume50.accessor()]}
